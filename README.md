@@ -25,7 +25,7 @@ main() {
 	cn_map_insert(map, strdup("test"), &a);
 
 	printf("%d\n", cn_map_find_deref(map, "test", int)); //Prints out "0"
-	cn_free_map();
+	cn_free_map(map);
 }
 ```
 
