@@ -9,7 +9,7 @@ In C++
 ```c++
 int main() {
 	map<string, int> thing;
-	thing.insert(pair<string, int>("test", 0);
+	thing.insert(pair<string, int>("test", 0));
 
 	cout << thing["test"] << endl; //Prints out "0"
 }
