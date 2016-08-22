@@ -1,7 +1,7 @@
 #CN_Map
 A C library that implements C++ STL Maps as Red-Black Trees!
 
-<b>NOTE: This is an experiment at best. Red-Black Trees are not functional at the moment.</b>
+<b>NOTE: This is an experiment at the moment. The Red-Black Trees only have insert functions implemented at the moment.</b>
 
 Maps are a fun data structure to use in C++. You have to specify two types to declare one. The first type is the key that the map uses as a sort of "identifier" for the second value, being the "value". In other words, the key "test" can return 0 if you wanted it to.
 
