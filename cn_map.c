@@ -1,7 +1,7 @@
 /*
  * CN_Map Library
  *
- * Version 0.0.1 (Last Updated: 2016-08-15)
+ * Version 0.1.1 (Last Updated: 2016-08-19)
  *
  * Description:
  *     C++ Maps for C library. Implements the data structure with a struct and
@@ -41,48 +41,16 @@ CN_MAP new_cn_map(cnm_uint key_size, cnm_uint elem_size, CNC_COMP (*__func)(void
 void cn_map_insert(CN_MAP map, void* key, void* ptr) {
 	//Create the node
 	CNM_NODE* node = __cn_map_create_node(key, ptr, map->key_size, map->elem_size);
-	
-	//Now figure out where to put it in the tree.
-	if (map->size == 0) {
-		//Well that was easy...
-		map->head = node;
-		map->size++;
-	} else {
-		CNM_NODE* cur_node = map->head;
-		CNC_COMP  compare;
-		while (1) {
-			compare = map->cmpfunc(key, cur_node->key);
-			if (compare < 0) {
-				//LESS THAN
-				if (cur_node->left == NULL) {
-					cur_node->left = node;
-					node->up = cur_node;
-					break;
-				} else
-					cur_node = cur_node->left;
-			}
-			if (compare == 0) {
-				//EQUAL
-				__cn_map_free_node(node);
-				fprintf(stderr, "WARNING: Duplicate Key\n");
-				break;
-			}
-			if (compare > 0) {
-				//GREATER THAN
-				if (cur_node->right == NULL) {
-					cur_node->right = node;
-					node->up = cur_node;
-					break;
-				} else
-					cur_node = cur_node->right;
-			}
-		}
-		if (compare != 0)
-			map->size++;
-	}
-
+	__cn_map_proceed_insert(map, key, node);
+	__cn_map_calculate_edge(map);
 }
 
+void cn_map_insert_blank(CN_MAP map, void* key) {
+	//Create the node
+	CNM_NODE* node = __cn_map_create_node(key, NULL, map->key_size, map->elem_size);
+	__cn_map_proceed_insert(map, key, node);
+	__cn_map_calculate_edge(map);
+}
 
 //Set
 
@@ -137,8 +105,10 @@ CNM_ITERATOR* cn_map_begin(CN_MAP map) {
 	CNM_NODE* cur_node = map->head;
 	while (1) {
 		if (cur_node->left != NULL) {
+			//printf("yes\n");
 			iterator->prev = cur_node;
 			cur_node = cur_node->left;
+			//printf("%d\n", *(int*)cur_node->key);
 		} else {
 			iterator->node = cur_node;
 			break;
@@ -184,54 +154,71 @@ CNM_ITERATOR* cn_map_prev(CN_MAP map, CNM_ITERATOR* iterator) {
 }
 
 CNM_ITERATOR* cn_map_next(CN_MAP map, CNM_ITERATOR* iterator) {
-	//Check if at last node.
-	/*if (iterator->prev = iterator->node->up                   &&
-	    map->cmpfunc(iterator->node->key, map->head->key) > 0 &&
-		iterator->node->right == NULL                         &&
-	    iterator->node->left  == NULL) {
+	if (iterator->node == map->most) {
+		iterator->prev = iterator->node;
 		iterator->node = NULL;
-		return iterator;
-	}*/
-
-	if (iterator->count >= map->size - 1) {
-		iterator->node = NULL;
-		return iterator;
-	} else {
-		iterator->count++;
 	}
+	else
+	if (iterator->prev == iterator->node->left) {
+		if (iterator->node->right != NULL) {
+			//Went up from a left node. Go right.
+			iterator->prev = iterator->node;
+			iterator->node = iterator->node->right;
 
-	//Try going back
-	if (iterator->node->left == NULL && iterator->prev != iterator->node->left && map->cmpfunc(iterator->node->key, map->head->key) < 0) {
-		//printf("As far left as possible\n");
-		if (iterator->node->up != NULL) {
-			//printf("Can go up\n");
+			//Now go as far left as possible
+			while (iterator->node->left != NULL) {
+				iterator->prev = iterator->node;
+				iterator->node = iterator->node->left;
+			}
+		} else {
+			//Or not...
 			iterator->prev = iterator->node;
 			iterator->node = iterator->node->up;
+		}
+	}
+	else
+	if (iterator->node->left == NULL) {
+		if (iterator->node->right == NULL) {
+			//Find the direction we came from
+			int __dir = (iterator->node->up->right == iterator->node);
+			if (__dir == 1) {
+				//Go up until a right node (Which we didn't visit) exists
+				while (1) {
+					iterator->prev = iterator->node;
+					if (iterator->node->up == NULL) {
+						iterator->node = NULL;
+						break;
+					}
+					iterator->node = iterator->node->up;
+					if (iterator->node->right != iterator->prev)
+						break;
+				}
+			} else {
+				if (iterator->node->up != NULL) {
+					iterator->prev = iterator->node;
+					iterator->node = iterator->node->up;
+				}
+			}
 		} else {
-			//printf("At root node. Going to the right\n");
-			//Go down the right branch one level and go left as far as possible
+			iterator->prev = iterator->node;
 			iterator->node = iterator->node->right;
+
+			//Go as far left as possible.
 			while (iterator->node->left != NULL) {
 				iterator->prev = iterator->node;
 				iterator->node = iterator->node->left;
 			}
 		}
 	} else {
-		if (iterator->prev == iterator->node->left) {
-			//Did you just come from the bottom left? Go to the right and as far
-			//left as possible.
-			if (iterator->node->right != NULL) {
-				iterator->node = iterator->node->right;
-				while (iterator->node->left != NULL) {
-					iterator->prev = iterator->node;
-					iterator->node = iterator->node->left;
-				}
-			} else {
-				//Or... not.
-				if (iterator->node->up != NULL) {
-					iterator->prev = iterator->node;
-					iterator->node = iterator->node->up;
-				}
+		//int __dir = (iterator->node->up->right == iterator->node);
+		if (iterator->node->right != NULL) {
+			iterator->prev = iterator->node;
+			iterator->node = iterator->node->right;
+			
+			//Now go as far left as possible
+			while (iterator->node->left != NULL) {
+				iterator->prev = iterator->node;
+				iterator->node = iterator->node->left;
 			}
 		}
 	}
@@ -248,15 +235,19 @@ void cn_map_free(CN_MAP map) {
 //Functions you won't use if you are sane
 CNM_NODE* __cn_map_create_node(void* key, void* ptr, cnm_uint key_size, cnm_uint elem_size) {
 	CNM_NODE* node = (CNM_NODE*) malloc(sizeof(struct cnm_node));
-	node->key   = (void*) malloc(key_size );
-	node->data  = (void*) malloc(elem_size);
-	node->up    = NULL;
-	node->left  = NULL;
-	node->right = NULL;
+	node->key    = (void*) malloc(key_size );
+	node->data   = (void*) malloc(elem_size);
+	node->up     = NULL;
+	node->left   = NULL;
+	node->right  = NULL;
+	node->colour = CNM_BLACK;
 
 	//Copy data over
 	memcpy(node->key , key, key_size );
-	memcpy(node->data, ptr, elem_size);
+	if (ptr == NULL)
+		memset(node->data, 0  , elem_size);
+	else
+		memcpy(node->data, ptr, elem_size);
 
 	return node;
 }
@@ -266,4 +257,211 @@ void __cn_map_free_node(CNM_NODE* ptr) {
 	if (ptr->data != NULL) free(ptr->data);
 
 	free(ptr);
+}
+
+void __cn_map_print_tree(CN_MAP map) {
+	printf("Key   : %s\nValue : %d\nColour: %s\nLevel : 0\n", (char*)map->head->key, *(int*)map->head->data, !map->head->colour ? "BLACK" : "RED");
+	
+	if (map->head->left  != NULL) printf(" - Has Left Node\n");
+	if (map->head->right != NULL) printf(" - Has Right Node\n");
+	
+	//Recursively search
+	if (map->head->left  != NULL) __cn_map_print_nodes(map->head->left , 1);
+	if (map->head->right != NULL) __cn_map_print_nodes(map->head->right, 1);
+}
+
+void __cn_map_print_nodes(CNM_NODE* ptr, cnm_uint level) {
+	printf("\nKey   : %s\nValue : %d\nColour: %s\nLevel : %d\nUp Key: %d\n", (char*)ptr->key, *(int*)ptr->data, !ptr->colour ? "BLACK" : "RED", level, *(int*)ptr->up->key);
+	
+	if (ptr->left  != NULL) printf(" - Has Left Node\n");
+	if (ptr->right != NULL) printf(" - Has Right Node\n");
+	
+	if (ptr->left  != NULL) __cn_map_print_nodes(ptr->left , level + 1);
+	if (ptr->right != NULL) __cn_map_print_nodes(ptr->right, level + 1);
+}
+
+void __cn_map_proceed_insert(CN_MAP map, void* key, CNM_NODE* node) {
+	node->colour   = CNM_RED;
+	
+	//Now figure out where to put it in the tree.
+	if (map->size == 0) {
+		//Well that was easy...
+		map->head         = node;
+		map->head->colour = CNM_BLACK;
+		map->size++;
+	} else {
+		CNM_NODE* cur_node = map->head;
+		CNC_COMP  compare;
+		while (1) {
+			compare = map->cmpfunc(key, cur_node->key);
+			if (compare < 0) {
+				//LESS THAN
+				if (cur_node->left == NULL) {
+					cur_node->left = node;
+					node->up = cur_node;
+					break;
+				} else
+					cur_node = cur_node->left;
+			}
+			if (compare == 0) {
+				//EQUAL
+				__cn_map_free_node(node);
+				fprintf(stderr, "WARNING: Duplicate Key\n");
+				break;
+			}
+			if (compare > 0) {
+				//GREATER THAN
+				if (cur_node->right == NULL) {
+					cur_node->right = node;
+					node->up = cur_node;
+					break;
+				} else
+					cur_node = cur_node->right;
+			}
+		}
+		if (compare != 0)
+			map->size++;
+		
+		//if (*(int*)node->key != 10)
+		__cn_map_nodes_adjust(map, node);
+	}
+}
+
+void __cn_map_nodes_adjust(CN_MAP map, CNM_NODE* node) {
+	if (node == NULL || node->up == NULL)
+		return; //You're a failure
+	
+	CNM_NODE* sibling = NULL;
+	
+	//Detect Double Red Problem
+	if (node->up->colour == CNM_RED) {
+		//We will attempt to recolour
+		//printf("Attempting Recolour\n");
+		if (node->up->up != NULL) {
+			//Get the sibling node... lol
+			if (node->up == node->up->up->left  && node->up->up->right != NULL)
+				sibling = node->up->up->right;
+			if (node->up == node->up->up->right && node->up->up->left  != NULL)
+				sibling = node->up->up->left;
+			
+			if (sibling != NULL && sibling->colour == CNM_RED) {
+				sibling->colour  = CNM_BLACK;
+				node->up->colour = CNM_BLACK;
+				node->up->up->colour = CNM_RED;
+				__cn_map_nodes_adjust(map, node->up->up);
+			}
+			else
+			if (node->up == node->up->up->left) {
+				if (node == node->up->right) {
+					__cn_map_node_rotate_left(map, node->up);
+				}
+				if (node->left != NULL && node->colour == CNM_RED && node->left->colour == CNM_RED) {
+					__cn_map_node_rotate_right(map, node->up);
+					node->colour       = CNM_BLACK;
+					node->right->colour = CNM_RED;
+				} else {
+					node->up->colour     = CNM_BLACK;
+					node->up->up->colour = CNM_RED;
+					__cn_map_node_rotate_right(map, node->up->up);
+				}
+			}
+			else
+			if (node->up == node->up->up->right) {
+				if (node == node->up->left) {
+					__cn_map_node_rotate_right(map, node->up);
+				}
+				//__cn_map_print_tree(map);
+				if (node->right != NULL && node->colour == CNM_RED && node->right->colour == CNM_RED) {
+					__cn_map_node_rotate_left(map, node->up);
+					node->colour       = CNM_BLACK;
+					node->left->colour = CNM_RED;
+				} else {
+					node->up->colour     = CNM_BLACK;
+					node->up->up->colour = CNM_RED;
+					__cn_map_node_rotate_left(map, node->up->up);
+				}
+			}
+		}
+	}
+	
+	//Colour the root node black... just in case it became red.
+	map->head->colour = CNM_BLACK;
+}
+
+void __cn_map_node_rotate_left(CN_MAP map, CNM_NODE* node) {
+	//printf("Rotating Left (%d)\n", *(int*)node->key);
+	if (node == NULL)
+		return;
+	
+	if (node == map->head)
+		map->head = node->right;
+	
+	CNM_NODE* parent = node->up,
+	        * new_up = node->right,
+	        * trans  = new_up->left;
+	char    __dir = -1;
+	
+	if (parent != NULL) {
+		//Adjust the parent's node too.
+		__dir = (node == parent->right); //If it isn't the right, it is guaranteed to be the left
+	}
+	
+	new_up->left = node;
+	new_up->up = node->up;
+	node->up = new_up;
+	
+	if (trans != NULL)
+		node->right = trans;
+	else
+		node->right = NULL;
+	
+	if (__dir != -1)
+		if (__dir == 1)
+			parent->right = new_up;
+		else
+			parent->left  = new_up;
+}
+
+void __cn_map_node_rotate_right(CN_MAP map, CNM_NODE* node) {
+	//printf("Rotating Right (%d)\n", *(int*)node->key);
+	if (node == NULL)
+		return;
+	
+	if (node == map->head)
+		map->head = node->left;
+	
+	CNM_NODE* parent = node->up,
+	        * new_up = node->left,
+	        * trans  = new_up->right;
+	char    __dir = -1;
+	
+	if (parent != NULL) {
+		//Adjust the parent's node too.
+		__dir = (node == parent->right); //If it isn't the right, it is guaranteed to be the left
+	}
+	
+	new_up->right = node;
+	new_up->up = node->up;
+	node->up = new_up;
+	
+	if (trans != NULL)
+		node->left = trans;
+	else
+		node->left = NULL;
+	
+	if (__dir != -1)
+		if (__dir == 1)
+			parent->right = new_up;
+		else
+			parent->left  = new_up;
+}
+
+void __cn_map_calculate_edge(CN_MAP map) {
+	map->least = map->head;
+	map->most  = map->head;
+	
+	while (map->least->left != NULL)
+		map->least = map->least->left;
+	while (map->most->right != NULL)
+		map->most = map->most->right;
 }

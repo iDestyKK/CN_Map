@@ -1,7 +1,7 @@
 /*
  * CN_Map Library
  *
- * Version 0.0.1 (Last Updated: 2016-08-15)
+ * Version 0.1.1 (Last Updated: 2016-08-19)
  *
  * Description:
  *     C++ Maps for C library. Implements the data structure with a struct and
@@ -34,6 +34,11 @@ typedef unsigned int       cnm_uint;
 typedef unsigned long long cnm_u64;
 typedef unsigned char      cnm_byte;
 
+typedef enum cnm_colour {
+	CNM_BLACK,
+	CNM_RED
+} CNM_COLOUR;
+
 #ifndef __CN_COMP__
 	typedef int CNC_COMP;
 #endif
@@ -45,6 +50,7 @@ typedef struct cnm_node {
 	struct cnm_node* left,
 	               * right,
 	               * up;
+	CNM_COLOUR colour;
 } CNM_NODE;
 
 typedef struct cnm_iterator {
@@ -54,7 +60,9 @@ typedef struct cnm_iterator {
 } CNM_ITERATOR;
 
 typedef struct cn_map {
-	struct cnm_node* head;
+	struct cnm_node* head,
+	               * least,
+	               * most;
 	cnm_uint key_size,
 	         elem_size,
 	         size;
@@ -65,34 +73,42 @@ typedef CN_MAP MAP; //For you C++ people...
 
 //Functions
 //Initialiser
-CN_MAP        new_cn_map   (cnm_uint, cnm_uint, CNC_COMP (*__func)(void*, void*));
+CN_MAP        new_cn_map         (cnm_uint, cnm_uint, CNC_COMP (*__func)(void*, void*));
 
 //Add
-void          cn_map_insert(CN_MAP, void*, void*);
+void          cn_map_insert      (CN_MAP, void*, void*);
+void          cn_map_insert_blank(CN_MAP, void*);
 
 //Set
 
 //Modify
-void          cn_map_clear (CN_MAP);
+void          cn_map_clear       (CN_MAP);
 
 //Get
-CNM_NODE*     cn_map_find  (CN_MAP, void*);
-cnm_uint      cn_map_size  (CN_MAP);
+CNM_NODE*     cn_map_find        (CN_MAP, void*);
+cnm_uint      cn_map_size        (CN_MAP);
 
 //Iteration
-CNM_ITERATOR* cn_map_begin (CN_MAP);
-CNM_ITERATOR* cn_map_end   (CN_MAP);
-CNM_ITERATOR* cn_map_rbegin(CN_MAP);
-CNM_ITERATOR* cn_map_rend  (CN_MAP);
-CNM_ITERATOR* cn_map_prev  (CN_MAP, CNM_ITERATOR*);
-CNM_ITERATOR* cn_map_next  (CN_MAP, CNM_ITERATOR*);
+CNM_ITERATOR* cn_map_begin       (CN_MAP);
+CNM_ITERATOR* cn_map_end         (CN_MAP);
+CNM_ITERATOR* cn_map_rbegin      (CN_MAP);
+CNM_ITERATOR* cn_map_rend        (CN_MAP);
+CNM_ITERATOR* cn_map_prev        (CN_MAP, CNM_ITERATOR*);
+CNM_ITERATOR* cn_map_next        (CN_MAP, CNM_ITERATOR*);
 
 //Destructor
-void          cn_map_free  (CN_MAP);
+void          cn_map_free        (CN_MAP);
 
 //Functions you won't use if you are sane
-CNM_NODE*     __cn_map_create_node(void*, void*, cnm_uint, cnm_uint);
-void          __cn_map_free_node  (CNM_NODE*);
+CNM_NODE*     __cn_map_create_node      (void*, void*, cnm_uint, cnm_uint);
+void          __cn_map_free_node        (CNM_NODE*);
+void          __cn_map_print_tree       (CN_MAP);
+void          __cn_map_print_nodes      (CNM_NODE*, cnm_uint);
+void          __cn_map_proceed_insert   (CN_MAP, void*, CNM_NODE*);
+void          __cn_map_nodes_adjust     (CN_MAP, CNM_NODE*);
+void          __cn_map_node_rotate_left (CN_MAP, CNM_NODE*);
+void          __cn_map_node_rotate_right(CN_MAP, CNM_NODE*);
+void          __cn_map_calculate_edge   (CN_MAP);
 
 //Macros
 #define cn_map_init(key_type, elem_type, __func) \
@@ -118,4 +134,7 @@ void          __cn_map_free_node  (CNM_NODE*);
 /*
     2016-08-16 (0.0.1)
       - Started writing CN_Map. Doesn't use Red-Black Trees as of now.
+    
+    2016-08-19 (0.1.1)
+      - Added Balancing via recolouring and rotation.
 */
