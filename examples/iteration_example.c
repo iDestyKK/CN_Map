@@ -29,4 +29,6 @@ main() {
 			cn_map_iterator_value(&it, int)
 		);
 	}
+	
+	cn_map_free(map);
 }
