@@ -1,7 +1,7 @@
 /*
  * CN_Map Library
  *
- * Version 1.0.0 (Last Updated: 2019-03-13)
+ * Version 1.0.0 (Last Updated: 2019-04-07)
  *
  * Description:
  *     C++ Maps for C library. Implements the data structure with a struct and
@@ -10,7 +10,7 @@
  *     and another for what data type the tree node will store. It will also
  *     require a comparison function to sort the tree.
  *
- *     It is highly recommended to use this along with the CN_Comp library, as
+ *     It is highly recommended to use this along with the CN_Cmp library, as
  *     if contains comparison functions for C data types to use in the CN_Map.
  *
  * Author:
