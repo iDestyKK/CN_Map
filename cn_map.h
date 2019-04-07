@@ -162,7 +162,6 @@ void      __cn_map_r_r(CN_MAP, CNM_NODE *, CNM_NODE *, CNM_NODE *, CNM_NODE *);
 CNM_NODE *__cn_map_rotate_left (CN_MAP, CNM_NODE *);
 CNM_NODE *__cn_map_rotate_right(CN_MAP, CNM_NODE *);
 
-CNM_UINT  __cn_map_bst_delete  (CN_MAP, CNM_NODE *, CNM_NODE *);
 void      __cn_map_clear_nested(CN_MAP, CNM_NODE *);
 
 void      __cn_map_calibrate   (CN_MAP);
