@@ -1,7 +1,7 @@
 /*
  * CN_Map Library
  *
- * Version 0.1.1 (Last Updated: 2016-08-19)
+ * Version 1.0.0 (Last Updated: 2019-03-13)
  *
  * Description:
  *     C++ Maps for C library. Implements the data structure with a struct and
@@ -9,459 +9,1241 @@
  *     Maps. CN_Maps require specification of two file types. One for the key,
  *     and another for what data type the tree node will store. It will also
  *     require a comparison function to sort the tree.
- *     
- *     It is highly recommended to use this along with the CN_Comp library, as
- *     it contains comparison functions for C data types to use in the CN_Map.
  *
- * Changelog of library is located at the bottom of "cn_map.h".
+ *     It is highly recommended to use this along with the CN_Comp library, as
+ *     if contains comparison functions for C data types to use in the CN_Map.
  *
  * Author:
- *     Clara Van Nguyen
+ *     Clara Nguyen (@iDestyKK)
  *
- * For documentation and details on every function in this library, visit:
- * http://web.eecs.utk.edu/~ssmit285/lib/cn_map/index.html
+ * For documentation and Details on every function in this library, visit:
+ *     http://docs.claranguyen.me/lib.php?id=cnds/cn_map
  */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "cn_map.h"
 
-//Functions
-//Initialiser
-CN_MAP new_cn_map(cnm_uint key_size, cnm_uint elem_size, CNC_COMP (*__func)(void*, void*)) {
-	CN_MAP map     = (CN_MAP) malloc(sizeof(struct cn_map));
-	map->size      = 0;
-	map->key_size  = key_size;
-	map->elem_size = elem_size;
-	map->head      = NULL;
-	map->cmpfunc   = __func;
+// ----------------------------------------------------------------------------
+// Constructor                                                             {{{1
+// ----------------------------------------------------------------------------
 
-	return map;
+/*
+ * new_cn_map
+ *
+ * Description:
+ *     Sets up a brand new, blank CN_Map for use. The size of the node elements
+ *     is determined by what types are thrown in. "s1" is the size of the key
+ *     elements in bytes, while "s2" is the size of the value elements in
+ *     bytes.
+ *
+ *     Since this is also a tree data structure, a comparison function is also
+ *     required to be passed in. A destruct function is optional and must be
+ *     added in through another function.
+ */
+
+CN_MAP new_cn_map(CNM_UINT s1, CNM_UINT s2, CNC_COMP(*cmp)(void *, void *)) {
+	CN_MAP obj = (CN_MAP) malloc(sizeof(struct cn_map));
+
+	//Set all pointers to NULL
+	obj->head  = NULL;
+
+	//Set up all default properties
+	obj->key_size  = s1;
+	obj->elem_size = s2;
+	obj->size      = 0;
+
+	//Function pointers
+	obj->func_compare = cmp;
+	obj->func_destruct = NULL;
+
+	//Dummy variables
+	obj->it_end.prev = NULL;
+	obj->it_end.node = NULL;
+	obj->it_least.prev = NULL;
+	obj->it_least.node = NULL;
+	obj->it_most.prev = NULL;
+	obj->it_most.node = NULL;
+
+	return obj;
 }
 
-//Add
-void cn_map_insert(CN_MAP map, void* key, void* ptr) {
-	//Create the node
-	CNM_NODE* node = __cn_map_create_node(key, ptr, map->key_size, map->elem_size);
-	__cn_map_proceed_insert(map, key, node);
-	__cn_map_calculate_edge(map);
+// ----------------------------------------------------------------------------
+// Function Pointer Management                                             {{{1
+// ----------------------------------------------------------------------------
+
+/*
+ * cn_map_set_func_comparison
+ *
+ * Description:
+ *     Sets the comparison function for the tree. Generally this is only called
+ *     during the tree's construction and is not intended for other uses. But,
+ *     I'll make it available to the user.
+ */
+
+void cn_map_set_func_comparison(CN_MAP obj, CNC_COMP (*cmp)(void *, void *)) {
+	obj->func_compare = cmp;
 }
 
-void cn_map_insert_blank(CN_MAP map, void* key) {
-	//Create the node
-	CNM_NODE* node = __cn_map_create_node(key, NULL, map->key_size, map->elem_size);
-	__cn_map_proceed_insert(map, key, node);
-	__cn_map_calculate_edge(map);
+/*
+ * cn_map_set_func_destructor
+ *
+ * Description:
+ *     Sets the comparison function for the tree. Generally this is only called
+ *     during the tree's construction and is not intended for other uses. But,
+ *     I'll make it available to the user.
+ */
+
+void cn_map_set_func_destructor(CN_MAP obj, void (*dest)(CNM_NODE*)) {
+	obj->func_destruct = dest;
 }
 
-//Set
+// ----------------------------------------------------------------------------
+// Add                                                                     {{{1
+// ----------------------------------------------------------------------------
 
-//Modify
-void cn_map_clear(CN_MAP map) {
-	//TODO: Implement...
-}
+/*
+ * cn_map_insert
+ *
+ * Description:
+ *     Inserts a key/value pair into the CN_Map. The value can be blank. If so,
+ *     it is filled with 0's, as defined in "__cn_map_create_node".
+ *
+ * Complexity:
+ *     O(N lg N)
+ */
 
-//Get
-CNM_NODE* cn_map_find(CN_MAP map, void* key) {
-	if (map->head == NULL)
-		return NULL;
+CNM_UINT cn_map_insert(CN_MAP obj, void *key, void *value) {
+	//Copy the key and value into a new node and prepare it to put into tree.
+	CNM_NODE *new_node = __cn_map_create_node(
+		key,
+		value,
+		obj->key_size,
+		obj->elem_size
+	);
 
-	CNM_NODE* cur_node = map->head;
-	CNC_COMP  compare;
+	obj->size++;
+
+	if (obj->head == NULL) {
+		//Just insert the node in as the new head.
+		obj->head = new_node;
+		obj->head->colour = CNM_BLACK;
+		return 1;
+	}
+
+	//Traverse the tree until we hit the end or find a side that is NULL
+	CNM_NODE *cur = obj->head;
+	CNM_NODE *target;
+	CNC_COMP res;
+
 	while (1) {
-		compare = map->cmpfunc(key, cur_node->key);
-		if (compare == 0) {
-			//We have our match.
-			return cur_node;
-			break;
-		}
-		if (compare < 0) {
-			if (cur_node->left == NULL)
-				return NULL;
-			else
-				cur_node = cur_node->left;
-		}
-		if (compare > 0) {
-			if (cur_node->right == NULL)
-				return NULL;
-			else
-				cur_node = cur_node->right;
-		}
-	}
-}
+		res = obj->func_compare(new_node->key, cur->key);
 
-cnm_uint cn_map_size(CN_MAP map) {
-	return map->size;
-}
-
-//Iteration
-CNM_ITERATOR* cn_map_begin(CN_MAP map) {
-	//Move along the left side of the tree. The left-most node is guaranteed
-	//to be the lowest valued number.
-	CNM_ITERATOR* iterator = (CNM_ITERATOR *) malloc(sizeof(struct cnm_iterator));
-	iterator->count = 0;
-	if (map->head == NULL) {
-		iterator->node = NULL;
-		return iterator;
-	}
-	CNM_NODE* cur_node = map->head;
-	while (1) {
-		if (cur_node->left != NULL) {
-			//printf("yes\n");
-			iterator->prev = cur_node;
-			cur_node = cur_node->left;
-			//printf("%d\n", *(int*)cur_node->key);
-		} else {
-			iterator->node = cur_node;
-			break;
+		//If the key matches something else, we can't insert
+		if (res == 0) {
+			__cn_map_free_node(obj, new_node);
+			return 0;
+		}
+		else {
+			//If not null, traverse.
+			//If null, set.
+			if (res < 0) {
+				if (cur->left == NULL) {
+					cur->left = new_node;
+					new_node->up = cur;
+					__cn_map_fix_colours(obj, new_node);
+					break;
+				}
+				else
+					cur = cur->left;
+			}
+			else {
+				if (cur->right == NULL) {
+					cur->right = new_node;
+					new_node->up = cur;
+					__cn_map_fix_colours(obj, new_node);
+					break;
+				}
+				else
+					cur = cur->right;
+			}
 		}
 	}
 
-	return iterator;
+	__cn_map_calibrate(obj);
+
+	//Insertion complete.
+	return 1;
 }
 
-CNM_ITERATOR* cn_map_end(CN_MAP map) {
-	return NULL;
-}
+// ----------------------------------------------------------------------------
+// Get Functions                                                           {{{1
+// ----------------------------------------------------------------------------
 
-CNM_ITERATOR* cn_map_rbegin(CN_MAP map) {
-	//Move along the right side of the tree. The right-most node is guaranteed
-	//to be the highest valued number.
-	CNM_ITERATOR* iterator = (CNM_ITERATOR *) malloc(sizeof(struct cnm_iterator));
-	iterator->count = 0;
-	if (map->head == NULL) {
-		iterator->node = NULL;
-		return iterator;
-	}
-	CNM_NODE* cur_node = map->head;
-	while (1) {
-		if (cur_node->right != NULL) {
-			iterator->prev = cur_node;
-			cur_node = cur_node->right;
-		} else {
-			iterator->node = cur_node;
-			break;
-		}
+void cn_map_find(CN_MAP obj, CNM_ITERATOR *it, void *key) {
+	//End the search instantly if there's nothing.
+	if (obj->head == NULL) {
+		it->node = it->prev = NULL;
+		return;
 	}
 
-	return iterator;
-}
-
-CNM_ITERATOR* cn_map_rend(CN_MAP map) {
-	return NULL;
-}
-
-CNM_ITERATOR* cn_map_prev(CN_MAP map, CNM_ITERATOR* iterator) {
+	//Basically a repeat of insert
+	CNM_NODE *cur = obj->head;
+	CNM_NODE *target;
+	CNC_COMP res;
 	
-}
+	//Binary Search
+	while (1) {
+		res = obj->func_compare(key, cur->key);
 
-CNM_ITERATOR* cn_map_next(CN_MAP map, CNM_ITERATOR* iterator) {
-	if (iterator->node == map->most) {
-		iterator->prev = iterator->node;
-		iterator->node = NULL;
-	}
-	else
-	if (iterator->prev == iterator->node->left) {
-		if (iterator->node->right != NULL) {
-			//Went up from a left node. Go right.
-			iterator->prev = iterator->node;
-			iterator->node = iterator->node->right;
-
-			//Now go as far left as possible
-			while (iterator->node->left != NULL) {
-				iterator->prev = iterator->node;
-				iterator->node = iterator->node->left;
+		//If the key matches, we hit our target
+		if (res == 0) {
+			break;
+		}
+		else
+		if (res < 0) {
+			if (cur->left == NULL) {
+				cur = NULL;
+				break;
 			}
-		} else {
-			//Or not...
-			iterator->prev = iterator->node;
-			iterator->node = iterator->node->up;
+			else
+				cur = cur->left;
+		}
+		else {
+			if (cur->right == NULL) {
+				cur = NULL;
+				break;
+			}
+			else
+				cur = cur->right;
 		}
 	}
-	else
-	if (iterator->node->left == NULL) {
-		if (iterator->node->right == NULL) {
-			//Find the direction we came from
-			int __dir = (iterator->node->up->right == iterator->node);
-			if (__dir == 1) {
-				//Go up until a right node (Which we didn't visit) exists
-				while (1) {
-					iterator->prev = iterator->node;
-					if (iterator->node->up == NULL) {
-						iterator->node = NULL;
-						break;
-					}
-					iterator->node = iterator->node->up;
-					if (iterator->node->right != iterator->prev)
-						break;
-				}
-			} else {
-				if (iterator->node->up != NULL) {
-					iterator->prev = iterator->node;
-					iterator->node = iterator->node->up;
-				}
-			}
-		} else {
-			iterator->prev = iterator->node;
-			iterator->node = iterator->node->right;
 
-			//Go as far left as possible.
-			while (iterator->node->left != NULL) {
-				iterator->prev = iterator->node;
-				iterator->node = iterator->node->left;
-			}
-		}
-	} else {
-		//int __dir = (iterator->node->up->right == iterator->node);
-		if (iterator->node->right != NULL) {
-			iterator->prev = iterator->node;
-			iterator->node = iterator->node->right;
-			
-			//Now go as far left as possible
-			while (iterator->node->left != NULL) {
-				iterator->prev = iterator->node;
-				iterator->node = iterator->node->left;
-			}
+	if (cur != NULL) {
+		it->node = cur;
+
+		//Generate a "prev" too
+		CNM_ITERATOR tmp;
+		tmp = *it;
+		__cn_map_prev(obj, &tmp);
+		it->prev = tmp.node;
+	}
+	else {
+		it->node = NULL;
+	}
+}
+
+CNM_UINT cn_map_size(CN_MAP obj) {
+	return obj->size;
+}
+
+CNM_BYTE cn_map_empty(CN_MAP obj) {
+	return (obj->size == 0);
+}
+
+CNM_UINT cn_map_key_size(CN_MAP obj) {
+	return obj->key_size;
+}
+
+CNM_UINT cn_map_value_size(CN_MAP obj) {
+	return obj->elem_size;
+}
+
+// ----------------------------------------------------------------------------
+// Iteration Functions                                                     {{{1
+// ----------------------------------------------------------------------------
+
+/*
+ * cn_map_begin
+ *
+ * Description:
+ *     Creates and returns a struct that contains a pointer to the key/value
+ *     pair at the beginning of the map.
+ */
+
+void cn_map_begin(CN_MAP obj, CNM_ITERATOR *it) {
+	//If there is nothing, return a blank iterator.
+	if (obj->size == 0) {
+		*it = obj->it_end;
+		return;
+	}
+
+	//Traverse down to the left until we can't anymore.
+	it->node = obj->head;
+	while (it->node->left != NULL)
+		it->node = it->node->left;
+
+	//Mark the previous node as the parent
+	it->prev = it->node->up;
+}
+
+/*
+ * cn_map_end
+ *
+ * Description:
+ *     Creates and returns a struct that contains a pointer to the key/value
+ *     pair at the end of the map (NULL, in this case).
+ */
+
+void cn_map_end(CN_MAP obj, CNM_ITERATOR *it) {
+	*it = obj->it_end;
+}
+
+/*
+ * cn_map_rbegin
+ *
+ * Description:
+ *     Creates and returns a struct that contains a pointer to the key/value
+ *     pair at the reverse beginning of the map.
+ */
+
+void cn_map_rbegin(CN_MAP obj, CNM_ITERATOR *it) {
+	//If there is nothing, return a blank iterator.
+	if (obj->size == 0) {
+		*it = obj->it_end;
+		return;
+	}
+
+	//Traverse down to the right until we can't anymore.
+	it->node = obj->head;
+	while (it->node->right != NULL)
+		it->node = it->node->right;
+
+	//Mark the previous node as the parent
+	it->prev = it->node->up;
+}
+
+/*
+ * cn_map_rend
+ *
+ * Description:
+ *     Creates and returns a struct that contains a pointer to the key/value
+ *     pair at the reverse end of the map (NULL, in this case).
+ */
+
+void cn_map_rend(CN_MAP obj, CNM_ITERATOR *it) {
+	*it = obj->it_end;
+}
+
+/*
+ * cn_map_next
+ *
+ * Description:
+ *     Advances the iterator to the next available key/value pair.
+ */
+
+void cn_map_next(CN_MAP obj, CNM_ITERATOR *it) {
+	if (it->node == NULL) {
+		//Nice try
+		it->prev = NULL;
+		return;
+	}
+	else
+	if (it->node == obj->it_most.node) {
+		//We have hit the end.
+		it->prev = NULL; //it->node;
+		it->node = NULL;
+	}
+	else
+	if (it->node->right != NULL && it->prev != it->node->right) {
+		//There is a right child. Go to the right, and then as far left as
+		//possible.
+		it->prev = it->node;
+		it->node = it->node->right;
+
+		while (it->node->left != NULL)
+			it->node = it->node->left;
+	}
+	else {
+		//Go up. How much depends on what "prev" is.
+		it->prev = it->node;
+		it->node = it->node->up;
+
+		//Keep going up until we can't anymore.
+		while (it->prev == it->node->right) {
+			it->prev = it->node;
+			it->node = it->node->up;
 		}
 	}
-	return iterator;
 }
 
-//Destructor
-void cn_map_free(CN_MAP map) {
-	if (map->size > 0)
-		cn_map_clear(map);
-	free(map);
+/*
+ * cn_map_prev
+ *
+ * Description:
+ *     Advances the iterator to the previous available key/value pair.
+ */
+
+void cn_map_prev(CN_MAP obj, CNM_ITERATOR *it) {
+	__cn_map_prev(obj, it);
+
+	//Compute "prev"
+	CNM_ITERATOR tmp;
+	tmp = *it;
+	__cn_map_prev(obj, &tmp);
+	it->prev = tmp.node;
 }
 
-//Functions you won't use if you are sane
-CNM_NODE* __cn_map_create_node(void* key, void* ptr, cnm_uint key_size, cnm_uint elem_size) {
-	CNM_NODE* node = (CNM_NODE*) malloc(sizeof(struct cnm_node));
-	node->key    = (void*) malloc(key_size );
-	node->data   = (void*) malloc(elem_size);
-	node->up     = NULL;
-	node->left   = NULL;
-	node->right  = NULL;
-	node->colour = CNM_BLACK;
-
-	//Copy data over
-	memcpy(node->key , key, key_size );
-	if (ptr == NULL)
-		memset(node->data, 0  , elem_size);
+void __cn_map_prev(CN_MAP obj, CNM_ITERATOR *it) {
+	if (it->node == NULL) {
+		//Nice try
+		it->prev = NULL;
+		return;
+	}
 	else
-		memcpy(node->data, ptr, elem_size);
+	if (it->node == obj->it_least.node) {
+		//We have hit the end.
+		it->prev = NULL; //it->node;
+		it->node = NULL;
+	}
+	else
+	//To the left, and then as far right as possible.
+	if (it->node->left != NULL) {
+		it->node = it->node->left;
+
+		while (it->node->right != NULL)
+			it->node = it->node->right;
+	}
+	else {
+		//Keep going up until there is a left child
+		it->prev = it->node;
+		it->node = it->node->up;
+
+		if (it->node == NULL)
+			return;
+
+		//Well... okay
+		while (
+			it->node->up   != NULL &&
+			it->node->left != NULL &&
+			it->node->left == it->prev
+		) {
+			it->prev = it->node;
+			it->node = it->node->up;
+		}
+	}
+}
+
+/*
+ * cn_map_at_begin
+ *
+ * Description:
+ *     Returns true if at the the rend of the CN_Map
+ */
+
+CNM_BYTE cn_map_at_begin(CN_MAP obj, CNM_ITERATOR *it) {
+	return (it->node == obj->it_least.node);
+}
+
+/*
+ * cn_map_at_end
+ *
+ * Description:
+ *     Returns true if at the the rend of the CN_Map
+ */
+
+CNM_BYTE cn_map_at_end(CN_MAP obj, CNM_ITERATOR *it) {
+	return (it->node == NULL);
+}
+
+/*
+ * cn_map_at_rbegin
+ *
+ * Description:
+ *     Returns true if at the the rend of the CN_Map
+ */
+
+CNM_BYTE cn_map_at_rbegin(CN_MAP obj, CNM_ITERATOR *it) {
+	return (it->node == obj->it_most.node);
+}
+
+/*
+ * cn_map_at_rend
+ *
+ * Description:
+ *     Returns true if at the the rend of the CN_Map
+ */
+
+CNM_BYTE cn_map_at_rend(CN_MAP obj, CNM_ITERATOR *it) {
+	return (it->node == NULL);
+}
+
+// ----------------------------------------------------------------------------
+// Remove Functions                                                        {{{1
+// ----------------------------------------------------------------------------
+
+/*
+ * cn_map_erase
+ *
+ * Description:
+ *     Removes a node from the CN_Map. It performs a BST delete, and then
+ *     reorders the tree so that it remains balanced.
+ */
+
+void cn_map_erase(CN_MAP obj, CNM_ITERATOR *it) {
+	CNM_UINT    result;
+	CNM_NODE   *x, *y, *new_node;
+	CNM_NODE   *node, *target, *t_sibling, *t_parent, *double_blk, *x_parent;
+	CNM_BYTE    c;
+	CNM_COLOUR  uc, vc;
+	CNM_BYTE    res_case;
+
+	node = it->node;
+
+	//If it is the head, and the size is 1, just delete it.
+	if (obj->size == 1 && node == obj->head) {
+		__cn_map_free_node(obj, node);
+		obj->head = NULL;
+		obj->size--;
+		return;
+	}
+
+	//Determine what the target is
+	c  = 0;
+	c |= (node->left  != NULL) << 0x0;
+	c |= (node->right != NULL) << 0x1;
+	
+	//Determine the case
+	switch (c) {
+		case 0x0:
+			//Leaf node (this should be impossible)
+			target = node;
+			break;
+
+		case 0x1:
+			//Has left child
+			target = node->left;
+			break;
+
+		case 0x2:
+			//Has right child
+			target = node->right;
+			break;
+
+		case 0x3:
+			//Has 2 children
+			target = node->left;
+			while (target->right != NULL)
+				target = target->right;
+			break;
+	}
+
+	//Grab the parent and sibling to the target node.
+	t_parent = target->up;
+
+	if (t_parent == NULL)
+		t_sibling = target;
+	else
+		t_sibling = (t_parent->left == target)
+			? t_parent->right
+			: t_parent->left;
+
+	//Initially there is no Double Black
+	double_blk = NULL;
+
+	if (node->left == NULL || node->right == NULL)
+		y = node;
+	else 
+		y = target;
+
+	if (y->left != NULL)
+		x = y->left;
+	else
+		x = y->right;
+
+	if (x != NULL)
+		x->up = y->up;
+
+	x_parent = y->up;
+
+	CNM_BYTE y_is_left = 0;
+	if (y->up == NULL) {
+		obj->head = x;
+	}
+	else {
+		if (y == y->up->left) {
+			y->up->left = x;
+			y_is_left = 1;
+		}
+		else
+			y->up->right = x;
+	}
+
+	if (y != node) {
+		//Move pointers over
+		if (obj->func_destruct != NULL)
+			obj->func_destruct(node);
+
+		free(node->key);
+		free(node->data);
+
+		node->key  = y->key;
+		node->data = y->data;
+
+		y->key = y->data = NULL;
+	}
+
+	if (y->colour == CNM_BLACK) {
+		//Make a blank node if null
+		if (x == NULL) {
+			double_blk = __cn_map_create_node(
+				NULL, NULL, obj->key_size, obj->elem_size
+			);
+
+			x = double_blk;
+
+			if (target->up->left == NULL)
+				target->up->left = x;
+			else
+				target->up->right = x;
+
+			x->up = target->up;
+			x->colour = CNM_BLACK;
+		}
+
+		//Let's fix the tree up
+		__cn_map_delete_fixup(
+			obj,
+			x,
+			x_parent,
+			y_is_left,
+			y
+		);
+
+		//Clean up Double Black
+		if (double_blk != NULL) {
+			if (double_blk->up != NULL) {
+				if (double_blk->up->left == double_blk)
+					double_blk->up->left = NULL;
+				else
+					double_blk->up->right = NULL;
+			}
+
+			__cn_map_free_node(obj, double_blk);
+		}
+	}
+
+	obj->size--;
+
+	__cn_map_free_node(obj, y);
+	__cn_map_calibrate(obj);
+}
+
+/*
+ * cn_map_clear
+ *
+ * Description:
+ *     Deletes all nodes in the graph. This is done by calling erase on the
+ *     head node until the tree is emptied.
+ */
+
+void cn_map_clear(CN_MAP obj) {
+	//Aggressively delete by recursion.
+	if (obj->head != NULL)
+		__cn_map_clear_nested(obj, obj->head);
+
+	//Reset stats
+	obj->size = 0;
+	obj->head = NULL;
+}
+
+/*
+ * cn_map_free
+ *
+ * Description:
+ *     Frees the CN_Map from memory. Deletes all nodes. Call this when you are
+ *     done using the data structure.
+ */
+
+void cn_map_free(CN_MAP obj) {
+	//Free all nodes
+	cn_map_clear(obj);
+
+	//Free the map itself
+	free(obj);
+}
+
+// ----------------------------------------------------------------------------
+// Private/Implementation Helper Functions                                 {{{1
+// ----------------------------------------------------------------------------
+
+/*
+ * __cn_map_create_node
+ *
+ * Description:
+ *     Creates a node to be attached in the CN_Map internal tree structure.
+ */
+
+CNM_NODE *__cn_map_create_node(
+	void     *key,
+	void     *value,
+	CNM_UINT  ksize,
+	CNM_UINT  vsize
+) {
+	CNM_NODE *node = (CNM_NODE *) malloc(sizeof(struct cnm_node));
+
+	//Allocate memory for the keys and values.
+	node->key  = (void *) malloc(ksize);
+	node->data = (void *) malloc(vsize);
+
+	//Setup the pointers
+	node->left  = NULL;
+	node->right = NULL;
+	node->up    = NULL;
+
+	//Set the colour to black by default
+	node->colour = CNM_RED;
+
+	/*
+	 * Copy over the key and values
+	 *
+	 * If the parameter passed in is NULL, make the element blank instead of
+	 * a segfault.
+	 */
+	if (key == NULL)
+		memset(node->key , 0  , ksize);
+	else
+		memcpy(node->key , key, ksize);
+
+	if (value == NULL)
+		memset(node->data, 0    , vsize);
+	else
+		memcpy(node->data, value, vsize);
 
 	return node;
 }
 
-void __cn_map_free_node(CNM_NODE* ptr) {
-	if (ptr->key  != NULL) free(ptr->key );
-	if (ptr->data != NULL) free(ptr->data);
+void __cn_map_free_node(CN_MAP obj, CNM_NODE *node) {
+	//Call the destructor... if it exists.
+	if (obj->func_destruct != NULL)
+		obj->func_destruct(node);
 
-	free(ptr);
+	if (node->key  != NULL) free(node->key);
+	if (node->data != NULL) free(node->data);
+
+	free(node);
 }
 
-void __cn_map_print_tree(CN_MAP map) {
-	printf("Key   : %s\nValue : %d\nColour: %s\nLevel : 0\n", (char*)map->head->key, *(int*)map->head->data, !map->head->colour ? "BLACK" : "RED");
-	
-	if (map->head->left  != NULL) printf(" - Has Left Node\n");
-	if (map->head->right != NULL) printf(" - Has Right Node\n");
-	
-	//Recursively search
-	if (map->head->left  != NULL) __cn_map_print_nodes(map->head->left , 1);
-	if (map->head->right != NULL) __cn_map_print_nodes(map->head->right, 1);
-}
+void __cn_map_fix_colours(CN_MAP obj, CNM_NODE *node) {
+	//If root, set the colour to black
+	if (node == obj->head) {
+		node->colour = CNM_BLACK;
+		return;
+	}
 
-void __cn_map_print_nodes(CNM_NODE* ptr, cnm_uint level) {
-	printf("\nKey   : %s\nValue : %d\nColour: %s\nLevel : %d\nUp Key: %d\n", (char*)ptr->key, *(int*)ptr->data, !ptr->colour ? "BLACK" : "RED", level, *(int*)ptr->up->key);
-	
-	if (ptr->left  != NULL) printf(" - Has Left Node\n");
-	if (ptr->right != NULL) printf(" - Has Right Node\n");
-	
-	if (ptr->left  != NULL) __cn_map_print_nodes(ptr->left , level + 1);
-	if (ptr->right != NULL) __cn_map_print_nodes(ptr->right, level + 1);
-}
+	//If node's parent is black or node is root, back out.
+	if (node->up->colour == CNM_BLACK && node->up != obj->head)
+		return;
 
-void __cn_map_proceed_insert(CN_MAP map, void* key, CNM_NODE* node) {
-	node->colour   = CNM_RED;
-	
-	//Now figure out where to put it in the tree.
-	if (map->size == 0) {
-		//Well that was easy...
-		map->head         = node;
-		map->head->colour = CNM_BLACK;
-		map->size++;
-	} else {
-		CNM_NODE* cur_node = map->head;
-		CNC_COMP  compare;
-		while (1) {
-			compare = map->cmpfunc(key, cur_node->key);
-			if (compare < 0) {
-				//LESS THAN
-				if (cur_node->left == NULL) {
-					cur_node->left = node;
-					node->up = cur_node;
-					break;
-				} else
-					cur_node = cur_node->left;
-			}
-			if (compare == 0) {
-				//EQUAL
-				__cn_map_free_node(node);
-				fprintf(stderr, "WARNING: Duplicate Key\n");
-				break;
-			}
-			if (compare > 0) {
-				//GREATER THAN
-				if (cur_node->right == NULL) {
-					cur_node->right = node;
-					node->up = cur_node;
-					break;
-				} else
-					cur_node = cur_node->right;
-			}
-		}
-		if (compare != 0)
-			map->size++;
+	//Find out who is who
+	CNM_NODE *parent      = node->up;
+	CNM_NODE *grandparent = parent->up;
+	CNM_NODE *uncle;
+
+	if (parent->up == NULL)
+		return;
+
+	//Find out the uncle
+	if (grandparent->left == parent)
+		uncle = grandparent->right;
+	else
+		uncle = grandparent->left;
+
+	if (uncle != NULL && uncle->colour == CNM_RED) {
+		//If the uncle is red...
+		//Change colour of parent and uncle to black
+		uncle->colour = CNM_BLACK;
+		parent->colour = CNM_BLACK;
 		
-		//if (*(int*)node->key != 10)
-		__cn_map_nodes_adjust(map, node);
+		//Change colour of grandparent to red.
+		grandparent->colour = CNM_RED;
+
+		//Call this on the grandparent
+		__cn_map_fix_colours(obj, grandparent);
+	}
+	else
+	if (uncle == NULL || uncle->colour == CNM_BLACK) {
+		//If the uncle is black...
+		if (parent == grandparent->left && node == parent->left)
+			__cn_map_l_l(obj, node, parent, grandparent, uncle);
+		else
+		if (parent == grandparent->left && node == parent->right)
+			__cn_map_l_r(obj, node, parent, grandparent, uncle);
+		else
+		if (parent == grandparent->right && node == parent->left)
+			__cn_map_r_l(obj, node, parent, grandparent, uncle);
+		else
+		if (parent == grandparent->right && node == parent->right)
+			__cn_map_r_r(obj, node, parent, grandparent, uncle);
 	}
 }
 
-void __cn_map_nodes_adjust(CN_MAP map, CNM_NODE* node) {
-	if (node == NULL || node->up == NULL)
-		return; //You're a failure
-	
-	CNM_NODE* sibling = NULL;
-	
-	//Detect Double Red Problem
-	if (node->up->colour == CNM_RED) {
-		//We will attempt to recolour
-		//printf("Attempting Recolour\n");
-		if (node->up->up != NULL) {
-			//Get the sibling node... lol
-			if (node->up == node->up->up->left  && node->up->up->right != NULL)
-				sibling = node->up->up->right;
-			if (node->up == node->up->up->right && node->up->up->left  != NULL)
-				sibling = node->up->up->left;
-			
-			if (sibling != NULL && sibling->colour == CNM_RED) {
-				sibling->colour  = CNM_BLACK;
-				node->up->colour = CNM_BLACK;
-				node->up->up->colour = CNM_RED;
-				__cn_map_nodes_adjust(map, node->up->up);
+/*
+ * __cn_map_delete_fixup
+ *
+ * Description:
+ *     Fixes the Red-Black tree post-BST deletion. This may involve multiple
+ *     recolours and/or rotations depending on which node was deleted, what
+ *     colour it was, and where it was in the tree at the time of deletion.
+ *
+ *     These fixes occur up and down the path of the tree, and each rotation is
+ *     guaranteed constant time. As such, there is a maximum of O(lg n)
+ *     operations taking place during the fixup procedure.
+ */
+
+void __cn_map_delete_fixup(
+	CN_MAP    obj,
+	CNM_NODE *node,
+	CNM_NODE *p,
+	CNM_BYTE  y_is_left,
+	CNM_NODE *y
+) {
+	CNM_NODE   *w;
+	CNM_COLOUR  lc, rc;
+
+	if (node == NULL)
+		return;
+
+	while (node != obj->head && node->colour == CNM_BLACK) {
+		//If left child
+		if (y_is_left) {
+			w = p->right;
+
+			if (w->colour == CNM_RED) {
+				w->colour = CNM_BLACK;
+				p->colour = CNM_RED;
+				p = __cn_map_rotate_left(obj, p)->left;
+				w = p->right;
 			}
-			else
-			if (node->up == node->up->up->left) {
-				if (node == node->up->right) {
-					__cn_map_node_rotate_left(map, node->up);
-				}
-				if (node->left != NULL && node->colour == CNM_RED && node->left->colour == CNM_RED) {
-					__cn_map_node_rotate_right(map, node->up);
-					node->colour       = CNM_BLACK;
-					node->right->colour = CNM_RED;
-				} else {
-					node->up->colour     = CNM_BLACK;
-					node->up->up->colour = CNM_RED;
-					__cn_map_node_rotate_right(map, node->up->up);
-				}
+
+			lc = (w->left  == NULL) ? CNM_BLACK : w->left->colour;
+			rc = (w->right == NULL) ? CNM_BLACK : w->right->colour;
+
+			if (lc == CNM_BLACK && rc == CNM_BLACK) {
+				w->colour = CNM_RED;
+				node = node->up;
+				p = node->up;
+
+				if (p != NULL)
+					y_is_left = (node == p->left);
 			}
-			else
-			if (node->up == node->up->up->right) {
-				if (node == node->up->left) {
-					__cn_map_node_rotate_right(map, node->up);
+			else {
+				if (rc == CNM_BLACK) {
+					w->left->colour = CNM_BLACK;
+					w->colour = CNM_RED;
+					w = __cn_map_rotate_right(obj, w);
+					w = p->right;
 				}
-				//__cn_map_print_tree(map);
-				if (node->right != NULL && node->colour == CNM_RED && node->right->colour == CNM_RED) {
-					__cn_map_node_rotate_left(map, node->up);
-					node->colour       = CNM_BLACK;
-					node->left->colour = CNM_RED;
-				} else {
-					node->up->colour     = CNM_BLACK;
-					node->up->up->colour = CNM_RED;
-					__cn_map_node_rotate_left(map, node->up->up);
+
+				w->colour = p->colour;
+				p->colour = CNM_BLACK;
+
+				if (w->right != NULL)
+					w->right->colour = CNM_BLACK;
+
+				p = __cn_map_rotate_left(obj, p);
+				node = obj->head;
+				p = NULL;
+			}
+		}
+		else {
+			/* Same except flipped "left" and "right" */
+			w = p->left;
+
+			if (w->colour == CNM_RED) {
+				w->colour = CNM_BLACK;
+				p->colour = CNM_RED;
+				p = __cn_map_rotate_right(obj, p)->right;
+				w = p->left;
+			}
+
+			lc = (w->left  == NULL) ? CNM_BLACK : w->left->colour;
+			rc = (w->right == NULL) ? CNM_BLACK : w->right->colour;
+
+			if (lc == CNM_BLACK && rc == CNM_BLACK) {
+				w->colour = CNM_RED;
+				node = node->up;
+				p = node->up;
+				if (p != NULL)
+					y_is_left = (node == p->left);
+			}
+			else {
+				if (lc == CNM_BLACK) {
+					w->right->colour = CNM_BLACK;
+					w->colour = CNM_RED;
+					w = __cn_map_rotate_left(obj, w);
+					w = p->left;
 				}
+
+				w->colour = p->colour;
+				p->colour = CNM_BLACK;
+
+				if (w->left != NULL)
+					w->left->colour = CNM_BLACK;
+
+				p = __cn_map_rotate_right(obj, p);
+				node = obj->head;
+				p = NULL;
 			}
 		}
 	}
-	
-	//Colour the root node black... just in case it became red.
-	map->head->colour = CNM_BLACK;
+
+	node->colour = CNM_BLACK;
 }
 
-void __cn_map_node_rotate_left(CN_MAP map, CNM_NODE* node) {
-	//printf("Rotating Left (%d)\n", *(int*)node->key);
-	if (node == NULL)
-		return;
-	
-	if (node == map->head)
-		map->head = node->right;
-	
-	CNM_NODE* parent = node->up,
-	        * new_up = node->right,
-	        * trans  = new_up->left;
-	char    __dir = -1;
-	
-	if (parent != NULL) {
-		//Adjust the parent's node too.
-		__dir = (node == parent->right); //If it isn't the right, it is guaranteed to be the left
+void __cn_map_l_l(
+	CN_MAP obj,
+	CNM_NODE *node,
+	CNM_NODE *parent,
+	CNM_NODE *grandparent,
+	CNM_NODE *uncle
+) {
+	//Rotate to the right according to grandparent
+	grandparent = __cn_map_rotate_right(obj, grandparent);
+
+	//Swap grandparent and uncle's colours
+	CNM_COLOUR c1, c2;
+	c1 = grandparent->colour;
+	c2 = grandparent->right->colour;
+
+	grandparent->colour = c2;
+	grandparent->right->colour = c1;
+}
+
+void __cn_map_l_r(
+	CN_MAP obj,
+	CNM_NODE *node,
+	CNM_NODE *parent,
+	CNM_NODE *grandparent,
+	CNM_NODE *uncle
+) {
+	//Rotate to the left according to parent
+	parent = __cn_map_rotate_left(obj, parent);
+
+	//Refigure out who is who
+	node = parent->left;
+	grandparent = parent->up;
+	uncle = (grandparent->left == parent)
+		? grandparent->right
+		: grandparent->left;
+
+	//Apply left-left case
+	__cn_map_l_l(obj, node, parent, grandparent, uncle);
+}
+
+void __cn_map_r_r(
+	CN_MAP obj,
+	CNM_NODE *node,
+	CNM_NODE *parent,
+	CNM_NODE *grandparent,
+	CNM_NODE *uncle
+) {
+	//Rotate to the left according to grandparent
+	grandparent = __cn_map_rotate_left(obj, grandparent);
+
+	//Swap grandparent and uncle's colours
+	CNM_COLOUR c1, c2;
+	c1 = grandparent->colour;
+	c2 = grandparent->left->colour;
+
+	grandparent->colour = c2;
+	grandparent->left->colour = c1;
+}
+
+void __cn_map_r_l(
+	CN_MAP obj,
+	CNM_NODE *node,
+	CNM_NODE *parent,
+	CNM_NODE *grandparent,
+	CNM_NODE *uncle
+) {
+	//Rotate to the right according to parent
+	parent = __cn_map_rotate_right(obj, parent);
+
+	//Refigure out who is who
+	node = parent->right;
+	grandparent = parent->up;
+	uncle = (grandparent->left == parent)
+		? grandparent->right
+		: grandparent->left;
+
+	//Apply right-right case
+	__cn_map_r_r(obj, node, parent, grandparent, uncle);
+}
+
+/*
+ * __cn_map_rotate_left
+ *
+ * Description:
+ *     Performs a left rotation with "node". The following happens (with
+ *     respect to "C":
+ *
+ *         B                C
+ *        / \              / \
+ *       A   C     =>     B   D
+ *            \          /
+ *             D        A
+ *
+ *     Returns the new node pointing in the spot of the original node.
+ */
+
+CNM_NODE *__cn_map_rotate_left(CN_MAP obj, CNM_NODE *node) {
+	CNM_NODE *top, *r, *rr, *rl, *up;
+
+	top = node;
+	r   = node->right;
+	rl  = r->left;
+	rr  = r->right;
+	up  = node->up;
+
+	//Adjust
+	r->up = up;
+	r->left = node;
+
+	node->right = rl;
+	node->up = r;
+
+	if (node->right != NULL)
+		node->right->up = node;
+
+	if (up != NULL) {
+		if (up->right == node)
+			up->right = r;
+		else
+			up->left = r;
+	}
+
+	if (node == obj->head)
+		obj->head = r;
+
+	return r;
+}
+
+/*
+ * __cn_map_rotate_right
+ *
+ * Description:
+ *     Performs a right rotation with "node". The following happens (with
+ *     respect to "C":
+ *
+ *         C                B
+ *        / \              / \
+ *       B   D     =>     A   C
+ *      /                      \
+ *     A                        D
+ *
+ *     Returns the new node pointing in the spot of the original node.
+ */
+
+CNM_NODE *__cn_map_rotate_right(CN_MAP obj, CNM_NODE *node) {
+	CNM_NODE *top, *l, *ll, *lr, *up;
+
+	top = node;
+	l   = node->left;
+	lr  = l->right;
+	ll  = l->left;
+	up  = node->up;
+
+	//Adjust
+	l->up = up;
+	l->right = node;
+
+	node->left = lr;
+	node->up = l;
+
+	if (node->left != NULL)
+		node->left->up = node;
+
+	if (up != NULL) {
+		if (up->right == node)
+			up->right = l;
+		else
+			up->left = l;
+	}
+
+	if (node == obj->head)
+		obj->head = l;
+
+	return l;
+}
+
+/*
+ * __cn_map_bst_delete
+ *
+ * Description:
+ *     Performs a normal BST delete. Returns a pointer to the node that
+ *     replaces the one being deleted.
+ */
+
+CNM_UINT __cn_map_bst_delete(CN_MAP obj, CNM_NODE *node, CNM_NODE *orig) {
+	//If the tree is empty then there is no point in doing this
+	if (obj->head == NULL)
+		return 4;
+
+	//If the size is 1 then just free it
+	if (obj->size == 1) {
+		obj->head = NULL;
+		__cn_map_free_node(obj, node);
+		obj->size--;
+		return 4;
+	}
+
+	//Swapping elements
+	void *tmp;
+	CNM_NODE *target;
+	CNM_COLOUR del_c;
+
+	//Create a mask for determining what to do
+	CNM_BYTE c = 0;
+	c |= (node->left  != NULL) << 0x0;
+	c |= (node->right != NULL) << 0x1;
+
+	printf("Delete %c - %d%d\n", *(char*)node->key, c & 1, (c & 2) >> 1);
+	printf("  Up: %c\n", (node->up == NULL) ? '/' : *(char*)node->up->key);
+
+	switch (c) {
+		case 0x0:
+			//Case 1: Leaf
+			if (node->up->right == node) node->up->right = NULL;
+			if (node->up->left  == node) node->up->left  = NULL;
+
+			//Simply delete the node
+			del_c = node->colour;
+			__cn_map_free_node(obj, node);
+			break;
+
+		case 0x1:
+			//Case 2: Left Child Only
+			target = node->left;
+
+			//Swap the key and elements of the nodes, then remove the child.
+			tmp = node->key;
+			node->key = target->key;
+			target->key = tmp;
+
+			tmp = node->data;
+			node->data = target->data;
+			target->data = tmp;
+
+			//Relink other pointers
+			node->left  = target->left;
+			node->right = target->right;
+
+			if (target->left != NULL)
+				target->left->up = node;
+			if (target->right != NULL)
+				target->right->up = node;
+
+			del_c = target->colour;
+
+			//Erase the node
+			__cn_map_free_node(obj, target);
+			break;
+
+		case 0x2:
+			//Case 3: Right Child Only
+			target = node->right;
+
+			//Swap the key and elements of the nodes, then remove the child.
+			tmp = node->key;
+			node->key = target->key;
+			target->key = tmp;
+
+			tmp = node->data;
+			node->data = target->data;
+			target->data = tmp;
+
+			//Relink other pointers
+			node->left  = target->left;
+			node->right = target->right;
+
+			if (target->left != NULL)
+				target->left->up = node;
+			if (target->right != NULL)
+				target->right->up = node;
+
+			del_c = target->colour;
+
+			//Erase the node
+			__cn_map_free_node(obj, target);
+			break;
+
+		case 0x3:
+			//Case 4: Has two children
+			
+			/*
+			 * We have to find the target. If the right doesn't have any
+			 * children then it is the target. Otherwise, it's one to the
+			 * right, and then all the way to the left.
+			 *
+			 * The right node is guaranteed to exist at least, by the way.
+			 */
+
+			target = node->left;
+
+			while (target->right != NULL)
+				target = target->right;
+			
+			//Swap key/value pairs
+			tmp = node->key;
+			node->key = target->key;
+			target->key = tmp;
+
+			tmp = node->data;
+			node->data = target->data;
+			target->data = tmp;
+
+			//Alright, now recursively call delete on that node.
+			del_c = (CNM_COLOUR)(__cn_map_bst_delete(obj, target, orig) >> 3);
+
+			//Prevent the size decrementing at the end.
+			return 3 | (del_c << 3);
 	}
 	
-	new_up->left = node;
-	new_up->up = node->up;
-	node->up = new_up;
-	
-	if (trans != NULL)
-		node->right = trans;
-	else
-		node->right = NULL;
-	
-	if (__dir != -1)
-		if (__dir == 1)
-			parent->right = new_up;
-		else
-			parent->left  = new_up;
+	obj->size--;
+	return c | (del_c << 3);
 }
 
-void __cn_map_node_rotate_right(CN_MAP map, CNM_NODE* node) {
-	//printf("Rotating Right (%d)\n", *(int*)node->key);
-	if (node == NULL)
+/*
+ * __cn_map_clear_nested
+ *
+ * Description:
+ *     Recursive wrapper for deleting nodes in a graph at an accelerated pace.
+ *     Skips rotations. Just aggressively goes through all nodes and deletes.
+ */
+
+void __cn_map_clear_nested(CN_MAP obj, CNM_NODE *node) {
+	//Free children
+	if (node->left  != NULL) __cn_map_clear_nested(obj, node->left );
+	if (node->right != NULL) __cn_map_clear_nested(obj, node->right);
+
+	//Free self
+	__cn_map_free_node(obj, node);
+}
+
+/*
+ * __cn_map_calibrate
+ *
+ * Description:
+ *     Recalculate the positions of the "least" and "most" iterators in the
+ *     tree. This is so iterators know where the beginning and end of the tree
+ *     resides.
+ */
+
+void __cn_map_calibrate(CN_MAP obj) {
+	if (obj->head == NULL) {
+		obj->it_least.node = obj->it_most.node = NULL;
 		return;
-	
-	if (node == map->head)
-		map->head = node->left;
-	
-	CNM_NODE* parent = node->up,
-	        * new_up = node->left,
-	        * trans  = new_up->right;
-	char    __dir = -1;
-	
-	if (parent != NULL) {
-		//Adjust the parent's node too.
-		__dir = (node == parent->right); //If it isn't the right, it is guaranteed to be the left
 	}
-	
-	new_up->right = node;
-	new_up->up = node->up;
-	node->up = new_up;
-	
-	if (trans != NULL)
-		node->left = trans;
-	else
-		node->left = NULL;
-	
-	if (__dir != -1)
-		if (__dir == 1)
-			parent->right = new_up;
-		else
-			parent->left  = new_up;
-}
 
-void __cn_map_calculate_edge(CN_MAP map) {
-	map->least = map->head;
-	map->most  = map->head;
-	
-	while (map->least->left != NULL)
-		map->least = map->least->left;
-	while (map->most->right != NULL)
-		map->most = map->most->right;
+	//Recompute it_least and it_most
+	obj->it_least.node = obj->it_most.node = obj->head;
+
+	while (obj->it_least.node->left != NULL)
+		obj->it_least.node = obj->it_least.node->left;
+
+	while (obj->it_most.node->right != NULL)
+		obj->it_most.node = obj->it_most.node->right;
 }
