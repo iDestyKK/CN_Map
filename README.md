@@ -8,6 +8,14 @@ Maps are a fun data structure to use in C++. You have to specify two types to de
 ## Documentation
 Full documentation is available at: http://docs.claranguyen.me/lib.php?id=cnds/cn_map
 
+## What to include
+Include the following files in your project:
+```c
+#include "cn_cmp.h"
+#include "cn_map.h"
+```
+Yes, CN\_Map has 2 include files. `cn_map.h` is required. You are not required to include `cn_cmp.h`, but it includes comparison functions for all of the C types, so you don't have to write them yourself. This is optional because I want to give you the flexibility of whether to include it or not.
+
 ## Example
 In C++
 ```c++
