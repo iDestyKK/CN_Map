@@ -130,6 +130,9 @@ CNM_UINT cn_map_insert(CN_MAP obj, void *key, void *value) {
 		//Just insert the node in as the new head.
 		obj->head = new_node;
 		obj->head->colour = CNM_BLACK;
+
+		//Calibrate the tree to properly assign pointers.
+		__cn_map_calibrate(obj);
 		return 1;
 	}
 
